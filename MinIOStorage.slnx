@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
+  <Project Path="FileManagement.Web/FileManagement.Web.csproj" />
+  <Project Path="MinIO/MinIOStorage.csproj" />
+</Solution>

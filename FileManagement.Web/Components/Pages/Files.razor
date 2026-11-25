@@ -1,0 +1,144 @@
+@page "/files"
+@using FileManagement.Web.Services
+@inject IFileStorageService Storage
+@inject ILogger<Files> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Files</PageTitle>
+
+<h1>Files</h1>
+
+<div class="mb-3">
+	<InputFile OnChange="OnFilesSelected" multiple class="form-control" disabled="@_isUploading" />
+	@if (_isUploading)
+	{
+		<div class="form-text">Uploading&hellip;</div>
+	}
+</div>
+
+@if (_error is not null)
+{
+	<div class="alert alert-danger">@_error</div>
+}
+
+@if (_files is null)
+{
+	<p><em>Loading&hellip;</em></p>
+}
+else if (_files.Count == 0)
+{
+	<p><em>No files yet. Upload one above.</em></p>
+}
+else
+{
+	<table class="table table-striped">
+		<thead>
+			<tr>
+				<th>Name</th>
+				<th>Size</th>
+				<th>Last modified</th>
+				<th class="text-end">Actions</th>
+			</tr>
+		</thead>
+		<tbody>
+			@foreach (var file in _files)
+			{
+				<tr>
+					<td>@file.Name</td>
+					<td>@FormatSize(file.Size)</td>
+					<td>@file.LastModified.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+					<td class="text-end">
+						<button type="button"
+								class="btn btn-sm btn-outline-danger"
+								disabled="@_isUploading"
+								@onclick="() => DeleteAsync(file.Name)">
+							Delete
+						</button>
+					</td>
+				</tr>
+			}
+		</tbody>
+	</table>
+}
+
+@code {
+	private const long MaxFileSize = 100L * 1024 * 1024; // 100 MB
+
+	private IReadOnlyList<FileItem>? _files;
+	private bool _isUploading;
+	private string? _error;
+
+	protected override async Task OnInitializedAsync()
+	{
+		await RefreshAsync();
+	}
+
+	private async Task RefreshAsync()
+	{
+		try
+		{
+			_error = null;
+			_files = await Storage.ListAsync();
+		}
+		catch (Exception ex)
+		{
+			Logger.LogError(ex, "Failed to list files");
+			_error = $"Failed to load files: {ex.Message}";
+			_files = Array.Empty<FileItem>();
+		}
+	}
+
+	private async Task OnFilesSelected(InputFileChangeEventArgs e)
+	{
+		_isUploading = true;
+		_error = null;
+
+		try
+		{
+			foreach (var file in e.GetMultipleFiles(maximumFileCount: 20))
+			{
+				await using var stream = file.OpenReadStream(MaxFileSize);
+				await Storage.UploadAsync(file.Name, stream, file.Size, file.ContentType);
+			}
+
+			await RefreshAsync();
+		}
+		catch (Exception ex)
+		{
+			Logger.LogError(ex, "Upload failed");
+			_error = $"Upload failed: {ex.Message}";
+		}
+		finally
+		{
+			_isUploading = false;
+		}
+	}
+
+	private async Task DeleteAsync(string name)
+	{
+		try
+		{
+			_error = null;
+			await Storage.DeleteAsync(name);
+			await RefreshAsync();
+		}
+		catch (Exception ex)
+		{
+			Logger.LogError(ex, "Delete failed for {Name}", name);
+			_error = $"Delete failed: {ex.Message}";
+		}
+	}
+
+	private static string FormatSize(long bytes)
+	{
+		string[] units = { "B", "KB", "MB", "GB", "TB" };
+		double size = bytes;
+		int unit = 0;
+		while (size >= 1024 && unit < units.Length - 1)
+		{
+			size /= 1024;
+			unit++;
+		}
+		return $"{size:0.##} {units[unit]}";
+	}
+}
